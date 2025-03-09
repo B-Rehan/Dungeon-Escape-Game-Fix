@@ -1,0 +1,326 @@
+#include <allegro5/allegro.h>
+#include <allegro5/allegro_image.h>
+#include <allegro5/allegro_native_dialog.h>
+#include <istream>
+using namespace std;
+#include <iostream>
+
+int main() {
+    // Initialize Allegro and required addons
+    if (!al_init()) return -1;
+    if (!al_init_image_addon()) return -1;
+    al_install_keyboard(); // Enable keyboard input
+
+    // Create display (window size)
+    int width = 800, height = 600;
+    ALLEGRO_DISPLAY* display = al_create_display(width, height);
+    if (!display) {
+        al_show_native_message_box(NULL, "Error", "Display", "Failed to create display!", NULL, ALLEGRO_MESSAGEBOX_ERROR);
+        return -1;
+    }
+
+    // Load background image
+    ALLEGRO_BITMAP* background = al_load_bitmap("room1.png");
+    if (!background) {
+        al_show_native_message_box(display, "Error", "Image Load", "Failed to load room1.png!", NULL, ALLEGRO_MESSAGEBOX_ERROR);
+        al_destroy_display(display);
+        return -1;
+    }
+
+    // Load player image
+    ALLEGRO_BITMAP* person = al_load_bitmap("player.png");
+    if (!person) {
+        al_show_native_message_box(display, "Error", "Image Load", "Failed to load player.png!", NULL, ALLEGRO_MESSAGEBOX_ERROR);
+        al_destroy_bitmap(background);
+        al_destroy_display(display);
+        return -1;
+    }
+    al_convert_mask_to_alpha(person, al_map_rgb(255, 255, 255));
+
+    // 🟩 LOAD BLOCK IMAGE
+    ALLEGRO_BITMAP* block = al_load_bitmap("block.jpg");
+    if (!block) {
+        al_show_native_message_box(display, "Error", "Image Load", "Failed to load block.png!", NULL, ALLEGRO_MESSAGEBOX_ERROR);
+        al_destroy_bitmap(background);
+        al_destroy_bitmap(person);
+        al_destroy_display(display);
+        return -1;
+    }
+    // Load coin image
+    ALLEGRO_BITMAP* coin = al_load_bitmap("key.png");
+    if (!coin) {
+        al_show_native_message_box(display, "Error", "Image Load", "Failed to load key.png!", NULL, ALLEGRO_MESSAGEBOX_ERROR);
+        al_destroy_bitmap(background);
+        al_destroy_bitmap(person);
+        al_destroy_bitmap(block);
+        al_destroy_display(display);
+        return -1;
+    }
+    // Load enemy image
+    ALLEGRO_BITMAP* enemy = al_load_bitmap("enenmy.png");
+    if (!enemy) {
+        al_show_native_message_box(display, "Error", "Image Load", "Failed to load enemy.png!", NULL, ALLEGRO_MESSAGEBOX_ERROR);
+        al_destroy_bitmap(background);
+        al_destroy_bitmap(person);
+        al_destroy_bitmap(block);
+        al_destroy_bitmap(coin);
+        al_destroy_display(display);
+        return -1;
+    }
+    ALLEGRO_BITMAP* door = al_load_bitmap("door.png");
+    if (!door) {
+        al_show_native_message_box(display, "Error", "Image Load", "Failed to load door.png!", NULL, ALLEGRO_MESSAGEBOX_ERROR);
+        al_destroy_bitmap(background);
+        al_destroy_bitmap(person);
+        al_destroy_bitmap(block);
+        al_destroy_bitmap(coin);
+        al_destroy_display(display);
+        return -1;
+    }
+
+    // 🟩 BLOCK POSITION
+    int block_x = width / 2 - 50; // Centered
+    int block_y = height - 100;   // 200 pixels above the ground
+    int block_width = 500;
+    int block_height = 20;
+    //Block 2
+    int block2_x = 0;
+    int block2_y = height - 400;
+
+    //coin position
+    int coin_x = block_x + block_width / 2 - 10; // Centered on block
+    int coin_y = block_y - 40; // Slightly above block
+    bool coin_visible = true; // Track if coin is still there
+    //Second coin
+    int coin2_x = block2_x + block_width / 2 + 150; // Right of second block
+    int coin2_y = block2_y - 40; // Slightly above the second block
+    bool coin2_visible = true; // Track if second coin is collected
+    //door
+    int door_x = block_x;  // Place it near the right side
+    int door_y = block_y - block_height - 150; // Above the ground
+    bool door_visible = false; // Initially hidden
+
+    //enemy
+    int enemy_width = 80;
+    int enemy_height = 100;
+    int enemy_x = block2_x; // Center enemy on Brick 2
+    int enemy_y = block2_y - enemy_height; // Place enemy on top of Brick 2
+    // Resize player
+    int person_width = width / 5;
+    int person_height = height / 4;
+    int person_x = 0;  // Start at bottom-left
+    int person_y = height - person_height - 50;
+
+    // Movement variables
+    const int step_size = 20;
+    const int jump_strength = 22; // Jump power
+    int velocity_y = 0; // Vertical speed
+    bool on_ground = true; // Check if player is on the ground
+    //enenmy movement
+    bool moving_left = true;  // The enemy starts by moving left
+    int enemy_speed = 2;      // The enemy speed is set to 3 (you can adjust this value)
+
+    // Timer for smooth updates
+    ALLEGRO_TIMER* timer = al_create_timer(1.0 / 60); // 60 FPS
+    ALLEGRO_EVENT_QUEUE* event_queue = al_create_event_queue();
+    al_register_event_source(event_queue, al_get_keyboard_event_source());
+    al_register_event_source(event_queue, al_get_display_event_source(display));
+    al_register_event_source(event_queue, al_get_timer_event_source(timer));
+
+    // Start the game loop
+    bool running = true;
+    bool keys[3] = { false, false, false }; // A = 0, D = 1, W = 2
+    al_start_timer(timer);
+
+    while (running) {
+        ALLEGRO_EVENT event;
+        al_wait_for_event(event_queue, &event);
+
+        if (event.type == ALLEGRO_EVENT_DISPLAY_CLOSE) {
+            running = false;
+        }
+        if (event.type == ALLEGRO_EVENT_KEY_DOWN) {
+            if (event.keyboard.keycode == ALLEGRO_KEY_A) keys[0] = true;
+            if (event.keyboard.keycode == ALLEGRO_KEY_D) keys[1] = true;
+            if (event.keyboard.keycode == ALLEGRO_KEY_W && on_ground) {
+                keys[2] = true;
+                velocity_y = -jump_strength; // Jump!
+                on_ground = false;
+            }
+            if (event.keyboard.keycode == ALLEGRO_KEY_ESCAPE) running = false;
+        }
+        if (event.type == ALLEGRO_EVENT_KEY_UP) {
+            if (event.keyboard.keycode == ALLEGRO_KEY_A) keys[0] = false;
+            if (event.keyboard.keycode == ALLEGRO_KEY_D) keys[1] = false;
+            if (event.keyboard.keycode == ALLEGRO_KEY_W) keys[2] = false;
+        }
+        if (event.type == ALLEGRO_EVENT_TIMER) {
+            // New position (before actually moving)
+            int new_x = person_x;
+            if (keys[0]) new_x -= step_size; // Move left
+            if (keys[1]) new_x += step_size; // Move right
+
+            // Check if new position collides with ANY BLOCK
+            bool collides_with_block = false;
+
+            // FIRST BLOCK COLLISION CHECK
+            if (new_x + person_width > block_x && new_x < block_x + block_width &&
+                person_y + person_height > block_y && person_y < block_y + block_height) {
+                collides_with_block = true;
+            }
+
+            // SECOND BLOCK COLLISION CHECK (if you have another block)
+            if (new_x + person_width > block2_x && new_x < block2_x + block_width &&
+                person_y + person_height > block2_y && person_y < block2_y + block_height) {
+                collides_with_block = true;
+            }
+
+            // Only move if there is NO collision
+            if (!collides_with_block) {
+                person_x = new_x;
+            }
+
+            // Apply gravity
+            velocity_y += 1; // Simulates gravity
+            person_y += velocity_y;
+
+            // Add enemy's horizontal movement here
+            if (moving_left) {
+                enemy_x -= enemy_speed; // Move left
+                if (enemy_x <= block2_x) { // If the enemy reaches the left side of the block
+                    moving_left = false; // Change direction to right
+                }
+            }
+            else {
+                enemy_x += enemy_speed; // Move right
+                if (enemy_x >= block2_x + block_width - enemy_width) { // If the enemy reaches the right side of the block
+                    moving_left = true; // Change direction to left
+                }
+            }
+            // Check if the player would hit the bottom of a block when jumping
+            if (velocity_y < 0) { // Player is moving up
+                // Check collision with the first block
+                if (person_x + person_width > block_x && person_x < block_x + block_width &&
+                    person_y + velocity_y < block_y + block_height && person_y + person_height > block_y) {
+                    velocity_y = 0; // Stop upward movement
+                    person_y = block_y + block_height; // Place the player just below the block
+                }
+
+                // Check collision with the second block
+                if (person_x + person_width > block2_x && person_x < block2_x + block_width &&
+                    person_y + velocity_y < block2_y + block_height && person_y + person_height > block2_y) {
+                    velocity_y = 0; // Stop upward movement
+                    person_y = block2_y + block_height; // Place the player just below the block
+                }
+            }
+
+            // Now update position after checking collisions
+            person_y += velocity_y;
+
+            // Check if player touches the coin
+            if (coin_visible &&
+                person_x + person_width > coin_x && person_x < coin_x + 20 &&
+                person_y + person_height > coin_y && person_y < coin_y + 20) {
+                coin_visible = false; // Hide the coin once collected!
+            }
+
+            // Check if player touches the second coin
+            if (coin2_visible &&
+                person_x + person_width > coin2_x && person_x < coin2_x + 20 &&
+                person_y + person_height > coin2_y && person_y < coin2_y + 20) {
+                coin2_visible = false; // Hide the second coin
+            }
+            if (!coin_visible && !coin2_visible) {
+                door_visible = true;
+            }
+
+
+
+            // 🟩 BLOCK COLLISION - LAND ON BLOCK
+            if (person_y + person_height >= block_y &&      // Player is at block level
+                person_y + person_height <= block_y + block_height && // Player is inside block height
+                person_x + person_width > block_x &&       // Player's right edge is on block
+                person_x < block_x + block_width) {        // Player's left edge is on block
+                person_y = block_y - person_height; // Land on the block
+                velocity_y = 0;
+                on_ground = true;
+            }
+
+            if (person_y + person_height >= block2_y &&
+                person_y + person_height <= block2_y + block_height &&
+                person_x + person_width > block2_x &&
+                person_x < block2_x + block_width) {
+                person_y = block2_y - person_height;
+                velocity_y = 0;
+                on_ground = true;
+            }
+
+            // Check ground collision (if not standing on block)
+            if (person_y >= height - person_height - 50) {
+                person_y = height - person_height - 50;
+                velocity_y = 0;
+                on_ground = true;
+            }
+
+            // Check if player collides with enemy
+            if (person_x + person_width > enemy_x && person_x < enemy_x + enemy_width &&
+                person_y + person_height > enemy_y && person_y < enemy_y + enemy_height) {
+                al_show_native_message_box(display, "Game Over", "You Lost!", "The enemy got you!", NULL, ALLEGRO_MESSAGEBOX_WARN);
+                running = false; // End the game
+            }
+
+            // Keep player inside screen bounds
+            if (person_x < 0) person_x = 0;
+            if (person_x > width - person_width) person_x = width - person_width;
+
+            // Draw background
+            al_draw_scaled_bitmap(background, 0, 0, al_get_bitmap_width(background), al_get_bitmap_height(background),
+                0, 0, width, height, 0);
+
+            // 🟩 DRAW BLOCK
+            al_draw_scaled_bitmap(block, 0, 0, al_get_bitmap_width(block), al_get_bitmap_height(block),
+                block_x, block_y, block_width, block_height, 0);
+
+            // 🟩 DRAW BLOCK 2
+            al_draw_scaled_bitmap(block, 0, 0, al_get_bitmap_width(block), al_get_bitmap_height(block),
+                block2_x, block2_y, block_width, block_height, 0);
+            // Draw coin if it hasn't been collected
+            if (coin_visible) {
+                al_draw_scaled_bitmap(coin, 0, 0, al_get_bitmap_width(coin), al_get_bitmap_height(coin),
+                    coin_x, coin_y, 50, 50, 0);
+            }
+            // Draw second coin if it hasn't been collected
+            if (coin2_visible) {
+                al_draw_scaled_bitmap(coin, 0, 0, al_get_bitmap_width(coin), al_get_bitmap_height(coin),
+                    coin2_x, coin2_y, 50, 50, 0);
+            }
+
+            // Draw player
+            al_draw_scaled_bitmap(person, 0, 0, al_get_bitmap_width(person), al_get_bitmap_height(person),
+                person_x, person_y, person_width, person_height, 0);
+            //Draw Enemy
+            al_draw_scaled_bitmap(enemy, 0, 0, al_get_bitmap_width(enemy), al_get_bitmap_height(enemy),
+                enemy_x, enemy_y, enemy_width, enemy_height, 0);
+            //draw door
+
+            // Draw the door if it is visible
+            if (door_visible == true) {
+                al_draw_scaled_bitmap(door, 0, 0, al_get_bitmap_width(door), al_get_bitmap_height(door),
+                    door_x, door_y, 200, 200, 0);  // Scaling the door to fit your design
+            }
+
+            al_flip_display();
+        }
+    }
+
+    // Cleanup
+    al_destroy_timer(timer);
+    al_destroy_event_queue(event_queue);
+    al_destroy_bitmap(background);
+    al_destroy_bitmap(person);
+    al_destroy_bitmap(block); // 🟩 DESTROY BLOCK IMAGE
+    al_destroy_display(display);
+    al_destroy_bitmap(coin);
+
+    return 0;
+}
